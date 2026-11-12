@@ -67,100 +67,119 @@ object Render {
         return bmp
     }
 
-    /**
-     * Short and wide (a row or so tall): three columns. A smaller pet on the left with its thought in
-     * a speech bubble right beside it, as on Silverfish's home card, and the text block on the right.
-     */
+    /** Short and wide: three columns. The pet with its name under it, its thought beside it, the stats on the right. */
     private fun short(ctx: Context, c: Canvas, w: Int, h: Int, pet: Pet, now: Long) {
         val pad = h * 0.1f
         val availH = h - 2 * pad
-        val side = min(availH, w * 0.16f)
-        pet.sprite(now)?.let { drawSprite(c, it, pad, (h - side) / 2, side) }
-        val x = pad + side + pad
+        val colW = min(availH * 0.9f, w * 0.17f)
+        petColumn(ctx, c, pet, now, pad, pad, colW, availH)
+        val x = pad + colW + pad
         val rest = w - x - pad
         val thought = pet.thought
-        val cw = if (thought != null) rest * 0.55f else rest
-        val block = fitBlock(ctx, pet, now, cw, availH, null, 0)
+        val cw = if (thought != null) rest * 0.5f else rest
+        val block = fitBlock(ctx, pet, now, cw, availH)
         val statsX = w - pad - cw
         block.draw(c, statsX, (h - block.height) / 2)
         if (thought != null) {
-            val tail = block.size * 0.6f
-            val bx = x + tail
-            val bw = statsX - pad - bx
-            if (bw > block.size * 6) {
-                val bh = availH * 0.9f
-                bubble(c, bx, (h - bh) / 2, bw, bh, paint(ctx, block.size, WHITE), thought)
-            }
+            val bx = x + tailRoom(availH)
+            bubble(c, bx, pad, statsX - pad - bx, availH, thought, ctx)
         }
     }
 
-    /** Smallest text size worth showing; below this a block drops its thought (or the bubble goes). */
-    private fun minSize(ctx: Context) = 9 * ctx.resources.displayMetrics.density
-
-    /** Wide: the pet on the left; the text block, thought included, beside it. */
+    /** Medium wide: the pet with its name on the left; on the right its thought on top and the stats below. */
     private fun wide(ctx: Context, c: Canvas, w: Int, h: Int, pet: Pet, now: Long) {
         val pad = min(w, h) * 0.08f
-        val side = min(h - 2 * pad, w * 0.32f)
-        pet.sprite(now)?.let { drawSprite(c, it, pad, (h - side) / 2, side) }
-        val x = pad + side + pad
-        val cw = w - x - pad
         val availH = h - 2 * pad
-        // As many lines of the thought as fit at a readable size; none if even one doesn't.
-        var block: Block? = null
-        for (lines in listOf(3, 2, 1, 0)) {
-            val b = fitBlock(ctx, pet, now, cw, availH, if (lines > 0) pet.thought else null, lines)
-            block = b
-            if (b.size >= minSize(ctx)) break
+        val colW = min(availH, w * 0.3f)
+        petColumn(ctx, c, pet, now, pad, pad, colW, availH)
+        val x = pad + colW + pad
+        val cw = w - x - pad
+        val thought = pet.thought
+        val bubbleH = if (thought != null) availH * 0.4f else 0f
+        val statsH = availH - bubbleH - (if (thought != null) pad else 0f)
+        val block = fitBlock(ctx, pet, now, cw, statsH)
+        block.draw(c, x, h - pad - statsH + (statsH - block.height) / 2)
+        if (thought != null) {
+            val bx = x + tailRoom(bubbleH)
+            bubble(c, bx, pad, w - pad - bx, bubbleH, thought, ctx)
         }
-        block!!.draw(c, x, (h - block.height) / 2)
     }
 
-    /** Square or tall: the pet with its thought in a bubble beside it on top; the text block below. */
+    /** Square or tall: the pet with its name under it and its thought beside it on top; the stats below. */
     private fun stacked(ctx: Context, c: Canvas, w: Int, h: Int, pet: Pet, now: Long) {
         val pad = min(w, h) * 0.07f
         val cw = w - 2 * pad
-        val block = fitBlock(ctx, pet, now, cw, (h - 2 * pad) * 0.55f, null, 0)
-        val topH = h - 2 * pad - block.height - block.size * 0.8f
+        val block = fitBlock(ctx, pet, now, cw, (h - 2 * pad) * 0.5f)
+        val topH = h - 2 * pad - block.height - pad
         block.draw(c, pad, h - pad - block.height)
-
-        val sprite = pet.sprite(now)
         val thought = pet.thought
-        val side = min(topH, cw * 0.4f)
-        val bubbleX = pad + side + block.size * 1.2f
-        val bubbleW = w - pad - bubbleX
-        if (thought != null && bubbleW > block.size * 8) {
-            sprite?.let { drawSprite(c, it, pad, pad + (topH - side) / 2, side) }
-            val bubbleH = min(topH, max(side * 0.85f, block.size * 4f))
-            bubble(c, bubbleX, pad + (topH - bubbleH) / 2, bubbleW, bubbleH, paint(ctx, block.size, WHITE), thought)
+        if (thought != null) {
+            val colW = min(topH, cw * 0.4f)
+            petColumn(ctx, c, pet, now, pad, pad, colW, topH)
+            val bx = pad + colW + pad + tailRoom(topH)
+            bubble(c, bx, pad, w - pad - bx, topH, thought, ctx)
         } else {
-            val s = min(topH, cw)
-            sprite?.let { drawSprite(c, it, (w - s) / 2, pad + (topH - s) / 2, s) }
+            petColumn(ctx, c, pet, now, pad, pad, cw, topH)
         }
     }
 
-    // ── The text block ──────────────────────────────────────────────
+    private fun tailRoom(h: Float) = max(6f, h * 0.06f)
+
+    /**
+     * The pet, centred in a [colW] x [colH] column at ([x], [y]), with its name centred under it, and
+     * "EGG · GEN 1" under that when there's room: readable, and leaving the pet half the column.
+     */
+    private fun petColumn(ctx: Context, c: Canvas, pet: Pet, now: Long, x: Float, y: Float, colW: Float, colH: Float) {
+        val name = (pet.name ?: pet.stageTitle).uppercase()
+        val p = paint(ctx, colH * 0.15f, WHITE, isBold = true)
+        val nameW = p.measureText(name)
+        if (nameW > colW) p.textSize *= colW / nameW
+        val nameH = lineH(p)
+        val gap = nameH * 0.25f
+
+        val stage = "${pet.stageTitle.uppercase()} · GEN ${pet.generation}"
+        val sp = paint(ctx, p.textSize * 0.6f, DIM)
+        val stageW = sp.measureText(stage)
+        if (stageW > colW) sp.textSize *= colW / stageW
+        val stageH = lineH(sp) + gap * 0.5f
+        val withStage = sp.textSize >= minSize(ctx) && colH - nameH - gap - stageH >= colH * 0.5f
+
+        val textH = nameH + gap + if (withStage) stageH else 0f
+        val side = min(colW, colH - textH)
+        val top = y + (colH - (side + textH)) / 2
+        pet.sprite(now)?.let { drawSprite(c, it, x + (colW - side) / 2, top, side) }
+        centered(c, name, p, x + colW / 2, top + side + gap)
+        if (withStage) centered(c, stage, sp, x + colW / 2, top + side + gap + nameH + gap * 0.5f)
+    }
+
+    /** Smallest text size worth showing. */
+    private fun minSize(ctx: Context) = 9 * ctx.resources.displayMetrics.density
+
+    private fun centered(c: Canvas, s: String, p: TextPaint, cx: Float, y: Float) {
+        c.drawText(s, cx - p.measureText(s) / 2, y - p.fontMetrics.ascent, p)
+    }
+
+    // ── The stats block ─────────────────────────────────────────────
 
     private class Block(val size: Float, val height: Float, val width: Float, val draw: (Canvas, Float, Float) -> Unit)
 
-    /** The text block at the largest size that fits [cw] by [availH]. */
-    private fun fitBlock(ctx: Context, pet: Pet, now: Long, cw: Float, availH: Float, thought: String?, lines: Int): Block {
+    /** The stats at the largest size that fits [cw] by [availH]. */
+    private fun fitBlock(ctx: Context, pet: Pet, now: Long, cw: Float, availH: Float): Block {
         var lo = 1f
-        var hi = max(2f, availH / 6)
+        var hi = max(2f, availH / 4)
         repeat(14) {
             val mid = (lo + hi) / 2
-            val b = block(ctx, pet, now, mid, cw, thought, lines)
+            val b = block(ctx, pet, now, mid, cw)
             if (b.height <= availH && b.width <= cw) lo = mid else hi = mid
         }
-        return block(ctx, pet, now, lo, cw, thought, lines)
+        return block(ctx, pet, now, lo, cw)
     }
 
     /**
-     * The block at text size [s]: its height, the width its widest line needs, and how to draw it.
-     * Name, "EGG · GEN 1", progress bar, "2 PAGES TO NYMPH", BELLY / MOOD rows with dots,
-     * PAGES EATEN with today's count, and up to [lines] lines of [thought].
+     * The stats at text size [s]: progress bar, "2 PAGES TO NYMPH", BELLY / MOOD rows
+     * with dots, PAGES EATEN with today's count. Its height, the width its widest line needs, how to draw it.
      */
-    private fun block(ctx: Context, pet: Pet, now: Long, s: Float, cw: Float, thought: String?, lines: Int): Block {
-        val namePaint = paint(ctx, s * 1.5f, WHITE, isBold = true)
+    private fun block(ctx: Context, pet: Pet, now: Long, s: Float, cw: Float): Block {
         val dim = paint(ctx, s, DIM)
         val row = paint(ctx, s, WHITE)
         val gap = s * 0.5f
@@ -169,8 +188,6 @@ object Render {
         val dotGap = s * 0.3f
         val dotsW = 4 * dot + 3 * dotGap
 
-        val name = (pet.name ?: pet.stageTitle).uppercase()
-        val stage = "${pet.stageTitle.uppercase()} · GEN ${pet.generation}"
         val next = pet.nextTitle?.let { "${pet.pagesToNext} PAGES TO ${it.uppercase()}" } ?: "${pet.pages} PAGES EATEN"
         val belly = pet.bellyAt(now)
         val mood = pet.moodAt(now)
@@ -180,24 +197,15 @@ object Render {
         val today = "${pet.pagesToday(now)} TODAY"
 
         val width = maxOf(
-            namePaint.measureText(name), dim.measureText(stage), dim.measureText(next),
+            dim.measureText(next),
             row.measureText(bellyText) + s + dotsW, row.measureText(moodText) + s + dotsW,
             row.measureText(pagesText) + s + dim.measureText(today),
         )
-        val thoughtLayout = if (thought != null && lines > 0) {
-            StaticLayout.Builder.obtain(thought, 0, thought.length, dim, max(1, cw.toInt()))
-                .setMaxLines(lines).setEllipsize(TextUtils.TruncateAt.END).build()
-        } else null
-
         val rowH = lineH(row)
-        val height = lineH(namePaint) + gap * 0.3f + lineH(dim) + gap + barH + gap + lineH(dim) + gap * 1.2f +
-            rowH * 3 + gap * 0.7f * 2 + (thoughtLayout?.let { gap * 1.4f + it.height } ?: 0f)
+        val height = barH + gap + lineH(dim) + gap * 1.2f + rowH * 3 + gap * 0.7f * 2
 
         return Block(s, height, width) { c, x, top ->
             var y = top
-            y = text(c, fit(name, namePaint, cw), namePaint, x, y)
-            y = text(c, fit(stage, dim, cw), dim, x, y + gap * 0.3f)
-            y += gap
             bar(c, x, y, cw, barH, pet.fraction.toFloat())
             y += barH + gap
             y = text(c, fit(next, dim, cw), dim, x, y)
@@ -208,13 +216,6 @@ object Render {
             y += gap * 0.7f
             text(c, fit(pagesText, row, cw), row, x, y)
             c.drawText(today, x + cw - dim.measureText(today), y + (rowH - lineH(dim)) / 2 - dim.fontMetrics.ascent, dim)
-            y += rowH
-            thoughtLayout?.let {
-                c.save()
-                c.translate(x, y + gap * 1.4f)
-                it.draw(c)
-                c.restore()
-            }
         }
     }
 
@@ -249,10 +250,12 @@ object Render {
 
     /**
      * A pixel speech bubble at ([x], [y]), [w] by [h]: white outline with clipped corners and a tail
-     * on the left pointing at the pet, and [text] centred inside, as many lines as fit.
+     * on the left pointing at the pet. [text] fills it: the largest size at which it fits without
+     * breaking a word.
      */
-    private fun bubble(c: Canvas, x: Float, y: Float, w: Float, h: Float, p: TextPaint, text: String) {
-        val b = max(2f, floor(p.textSize * 0.15f))  // the outline's "pixel"
+    private fun bubble(c: Canvas, x: Float, y: Float, w: Float, h: Float, text: String, ctx: Context) {
+        if (w <= 0 || h <= 0) return
+        val b = max(2f, floor(min(w, h) * 0.025f))  // the outline's "pixel"
         val white = Paint().apply { color = WHITE }
         fun r(l: Float, t: Float, rw: Float, rh: Float) = c.drawRect(l, t, l + rw, t + rh, white)
         r(x + b, y, w - 2 * b, b)
@@ -267,14 +270,28 @@ object Render {
         r(x - 2 * b, ty + b, b, b)
         r(x - b, ty + 2 * b, b, b)
 
-        val inner = max(4 * b, p.textSize * 0.6f)
+        val inner = max(4 * b, min(w, h) * 0.1f)
         val tw = (w - 2 * inner).toInt()
         val th = h - 2 * inner
         if (tw <= 0 || th <= 0) return
-        val maxLines = max(1, (th / (lineH(p) * 1.1f)).toInt())
-        val layout = StaticLayout.Builder.obtain(text, 0, text.length, p, tw)
-            .setAlignment(Layout.Alignment.ALIGN_CENTER)
-            .setMaxLines(maxLines).setEllipsize(TextUtils.TruncateAt.END).build()
+        val words = text.split(' ').filter { it.isNotEmpty() }
+        fun layoutAt(size: Float): StaticLayout {
+            val p = paint(ctx, size, WHITE)
+            return StaticLayout.Builder.obtain(text, 0, text.length, p, tw)
+                .setAlignment(Layout.Alignment.ALIGN_CENTER).build()
+        }
+        fun fits(size: Float): Boolean {
+            val p = paint(ctx, size, WHITE)
+            if (words.any { p.measureText(it) > tw }) return false
+            return layoutAt(size).height <= th
+        }
+        var lo = 1f
+        var hi = th
+        repeat(16) {
+            val mid = (lo + hi) / 2
+            if (fits(mid)) lo = mid else hi = mid
+        }
+        val layout = layoutAt(lo)
         c.save()
         c.translate(x + inner, y + (h - layout.height) / 2)
         layout.draw(c)
