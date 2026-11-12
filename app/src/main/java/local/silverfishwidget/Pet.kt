@@ -34,7 +34,13 @@ class Pet private constructor(j: JSONObject, private val pets: List<Long>) {
     private val moodPerHour = j.optDouble("humor_por_hora", 100.0 / 72)
     val bellyBands = bands(j.opt("faixas_barriga"))
     val moodBands = bands(j.opt("faixas_humor"))
-    val thought: String? = j.optString("fala").takeIf { it.isNotBlank() }
+    private val savedThought: String? = j.optString("fala").takeIf { it.isNotBlank() }
+    /**
+     * What it would say every [thoughtStep] seconds for the day after the save, each picked by Silverfish
+     * for how the pet will be by then (hungrier, asleep at night...). Empty from an older Silverfish.
+     */
+    private val timeline: List<String> = j.optJSONArray("falas")?.let { a -> (0 until a.length()).map { a.optString(it) } }.orEmpty()
+    private val thoughtStep = j.optLong("passo_fala", 20 * 60).coerceAtLeast(60)
     val awake = sprite(j.optJSONObject("acordada"))
     val asleep = sprite(j.optJSONObject("dormindo"))
     private val readingUntil = j.optLong("lendo_ate", 0)
@@ -83,7 +89,18 @@ class Pet private constructor(j: JSONObject, private val pets: List<Long>) {
         (baseMood(now) + 15.0 * judged.count { it.second && it.first <= now }).coerceIn(0.0, 100.0)
 
     /** What it says now: its reaction to a pet in the last few minutes, else its thought. */
+    /**
+     * Its thought at [now]: from the timeline, the one for the 20 minutes [now] falls in (changing every
+     * 20 minutes, as on Silverfish's home card), around again past the end; the saved one otherwise.
+     */
+    fun thought(now: Long): String? {
+        if (timeline.isEmpty()) return savedThought
+        val slot = (max(0L, now - savedAt) / thoughtStep).toInt() % timeline.size
+        return timeline[slot].ifBlank { savedThought }
+    }
+
     fun thoughtAt(now: Long): String? {
+        val thought = thought(now)
         val (t, ok) = judged.lastOrNull { it.first <= now } ?: return thought
         if (now - t > reactionSeconds) return thought
         return when {
