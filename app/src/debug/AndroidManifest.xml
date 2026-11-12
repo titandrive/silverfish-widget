@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Debug builds only: adb shell am broadcast -n local.silverfishwidget/.RenderProbe -->
+        <receiver android:name=".RenderProbe" android:exported="true" />
+    </application>
+</manifest>
