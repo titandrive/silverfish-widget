@@ -41,6 +41,15 @@
             </intent-filter>
         </activity>
 
+        <!-- Every tap on the widget: tells Silverfish what to open, then opens KOReader. Shows nothing itself. -->
+        <activity
+            android:name=".TapActivity"
+            android:exported="false"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay" />
+
         <receiver
             android:name=".PetWidget"
             android:exported="true">

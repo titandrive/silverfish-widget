@@ -107,6 +107,7 @@ class SetupActivity : ComponentActivity() {
         val start = remember { if (forWidget) Style.load(this, widgetId) else Style() }
         var mode by remember { mutableStateOf(start.mode) }
         var opacity by remember { mutableIntStateOf(start.opacity) }
+        var tap by remember { mutableStateOf(start.tap) }
         var instant by remember { mutableStateOf(Refresh.canInstant()) }
         var every by remember { mutableIntStateOf(Refresh.minutes(this)) }
 
@@ -160,7 +161,7 @@ class SetupActivity : ComponentActivity() {
                     ) {
                         val tick = rememberHaptic()
                         Button(
-                            onClick = { tick(); folder?.let { f -> scope.launch { save(f, Style(mode, opacity), every) } } },
+                            onClick = { tick(); folder?.let { f -> scope.launch { save(f, Style(mode, opacity, tap), every) } } },
                             enabled = folder != null && check != null && check != Folder.Check.NOT_SILVERFISH,
                             shape = CircleShape,
                             colors = ButtonDefaults.buttonColors(
@@ -189,7 +190,7 @@ class SetupActivity : ComponentActivity() {
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    if (forWidget) Preview(pet, Style(mode, opacity))
+                    if (forWidget) Preview(pet, Style(mode, opacity, tap))
 
                     SectionCard("KOReader location", R.drawable.ic_folder) {
                         val found = check == Folder.Check.OK && pet != null
@@ -207,6 +208,17 @@ class SetupActivity : ComponentActivity() {
                         PillSegmented(Style.MODES, mode, { it.replaceFirstChar(Char::uppercase) }) { mode = it }
                         SettingLabel("Background opacity", value = "$opacity%")
                         StepSlider(opacity, 0..100, step = 5) { opacity = it }
+                    }
+
+                    if (forWidget) SectionCard("Tap", R.drawable.ic_widget) {
+                        SettingLabel("Tap opens")
+                        PillSegmented(Style.TAPS, tap, {
+                            when (it) {
+                                "home" -> "Home"
+                                "book" -> "Last book"
+                                else -> "Silverfish"
+                            }
+                        }) { tap = it }
                     }
 
                     SectionCard("Updates", R.drawable.ic_refresh) {

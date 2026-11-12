@@ -42,10 +42,58 @@ object Folder {
         prefs(ctx).edit().putString("default", tree.toString()).apply()
     }
 
-    /** Keeps read access to a folder the user just picked, across restarts. */
+    /**
+     * Keeps access to a folder the user just picked, across restarts: read for the pet's data, and
+     * write for the note a tap leaves for Silverfish ([leaveNote]).
+     */
     fun take(ctx: Context, tree: Uri) {
-        ctx.contentResolver.takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        ctx.contentResolver.takePersistableUriPermission(
+            tree, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+        )
     }
+
+    /** Whether the app can write in the folder (folders picked before taps needed it are read-only). */
+    fun canWrite(ctx: Context, tree: Uri): Boolean =
+        ctx.contentResolver.persistedUriPermissions.any { it.uri == tree && it.isWritePermission }
+
+    /**
+     * Leaves widget/abrir for Silverfish: what the tap should open ("silverfish", "livro" or "inicio")
+     * and when. Silverfish reads it when KOReader comes up, and ignores it after a minute.
+     */
+    fun leaveNote(ctx: Context, tree: Uri, action: String): Boolean =
+        leaveNoteSaf(ctx, tree, action) || leaveNoteDirect(tree, action)
+
+    /**
+     * The note written straight to the file, with All files access: for folders picked before taps
+     * needed write access, which the storage framework only lets the app read.
+     */
+    private fun leaveNoteDirect(tree: Uri, action: String): Boolean = runCatching {
+        if (android.os.Build.VERSION.SDK_INT < 30 || !android.os.Environment.isExternalStorageManager()) return false
+        val id = DocumentsContract.getTreeDocumentId(tree)
+        val volume = id.substringBefore(':')
+        val path = id.substringAfter(':', "")
+        val root = if (volume == "primary") android.os.Environment.getExternalStorageDirectory() else java.io.File("/storage/$volume")
+        val picked = java.io.File(root, path)
+        val dir = listOf(java.io.File(picked, "widget"), java.io.File(picked, "plugins/$PLUGIN_DIR/widget")).firstOrNull { it.isDirectory }
+            ?: return false
+        java.io.File(dir, "abrir").writeText("$action ${System.currentTimeMillis() / 1000}")
+        true
+    }.getOrDefault(false)
+
+    private fun leaveNoteSaf(ctx: Context, tree: Uri, action: String): Boolean = runCatching {
+        if (!canWrite(ctx, tree)) return false
+        val root = rootId(tree) ?: return false
+        val widgetDir = child(ctx, tree, root, "widget")
+            ?: child(ctx, tree, root, "plugins")?.let { child(ctx, tree, it, PLUGIN_DIR) }?.let { child(ctx, tree, it, "widget") }
+            ?: return false
+        val note = child(ctx, tree, widgetDir, "abrir")?.let { DocumentsContract.buildDocumentUriUsingTree(tree, it) }
+            ?: DocumentsContract.createDocument(
+                ctx.contentResolver, DocumentsContract.buildDocumentUriUsingTree(tree, widgetDir), "application/octet-stream", "abrir",
+            ) ?: return false
+        ctx.contentResolver.openOutputStream(note, "wt")?.use {
+            it.write("$action ${System.currentTimeMillis() / 1000}".toByteArray())
+        } != null
+    }.getOrDefault(false)
 
     /** Where the folder is on the device, e.g. "koreader/plugins/silverfish.koplugin". */
     fun displayPath(tree: Uri): String {

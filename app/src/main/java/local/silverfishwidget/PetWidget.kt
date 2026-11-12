@@ -92,11 +92,10 @@ class PetWidget : AppWidgetProvider() {
             mgr.updateAppWidget(id, views)
         }
 
-        /** Opens KOReader once the widget works; until then, its setup. */
+        /** Opens KOReader (via [TapActivity], which tells Silverfish what to show) once the widget works; until then, its setup. */
         private fun tapIntent(ctx: Context, id: Int, ready: Boolean): PendingIntent {
-            val koreader = ctx.packageManager.getLaunchIntentForPackage(KOREADER)
-            val intent = if (ready && koreader != null) koreader
-            else Intent(ctx, SetupActivity::class.java)
+            val hasKoreader = ctx.packageManager.getLaunchIntentForPackage(KOREADER) != null
+            val intent = (if (ready && hasKoreader) Intent(ctx, TapActivity::class.java) else Intent(ctx, SetupActivity::class.java))
                 .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
                 .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
             return PendingIntent.getActivity(
