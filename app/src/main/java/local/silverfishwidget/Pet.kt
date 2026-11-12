@@ -39,6 +39,14 @@ class Pet private constructor(j: JSONObject) {
     val asleep = sprite(j.optJSONObject("dormindo"))
     private val readingUntil = j.optLong("lendo_ate", 0)
     val savedAt = j.optLong("salvo_em", 0)
+    /** Each face of the stage (normal, feliz, triste, dormindo, casulo); empty from an older Silverfish. */
+    private val faces: Map<String, Sprite> = j.optJSONObject("rostos")?.let { r ->
+        r.keys().asSequence().mapNotNull { k -> sprite(r.optJSONObject(k))?.let { k to it } }.toMap()
+    } ?: emptyMap()
+    private val lastMeal = j.optLong("ultima_refeicao", 0)
+    private val mealGlow = j.optLong("refeicao_recente", 120)
+    private val emptySince: Long? = if (j.isNull("vazio_desde") || !j.has("vazio_desde")) null else j.optLong("vazio_desde")
+    private val hibernateAfter = j.optLong("hiberna_apos", 3 * 24 * 3600)
 
     private fun hoursSince(now: Long) = max(0.0, (now - savedAt) / 3600.0)
 
@@ -55,8 +63,33 @@ class Pet private constructor(j: JSONObject) {
     /** Pages eaten today: the saved count if it was saved today, else none yet. */
     fun pagesToday(now: Long): Int = if (sameDay(savedAt, now)) pagesTodaySaved else 0
 
-    /** At night (23:00 to 06:00) it sleeps, unless you were reading a moment ago. */
+    /**
+     * Hibernating: Silverfish's flag, or the belly empty for [hibernateAfter] since it ran out (when it
+     * was saved empty, or when it will have run out at [hungerPerHour]).
+     */
+    fun hibernatingAt(now: Long): Boolean {
+        if (hibernating) return true
+        val emptyAt = emptySince ?: if (hungerPerHour > 0) savedAt + (belly / hungerPerHour * 3600).toLong() else return false
+        return bellyAt(now) <= 0 && now - emptyAt >= hibernateAfter
+    }
+
+    /**
+     * The face now, as Silverfish's Estado.expressao picks it: cocoon when hibernating; sad with belly
+     * or mood under 25; asleep at night (23:00 to 06:00) unless you were reading a moment ago; happy
+     * just after a meal or with mood 75 or more; otherwise normal.
+     */
+    fun face(now: Long): String {
+        if (hibernatingAt(now)) return "casulo"
+        if (bellyAt(now) < 25 || moodAt(now) < 25) return "triste"
+        val hour = Calendar.getInstance().apply { timeInMillis = now * 1000 }.get(Calendar.HOUR_OF_DAY)
+        if ((hour >= 23 || hour < 6) && now > readingUntil) return "dormindo"
+        if ((lastMeal > 0 && now - lastMeal < mealGlow) || moodAt(now) >= 75) return "feliz"
+        return "normal"
+    }
+
     fun sprite(now: Long): Sprite? {
+        if (faces.isNotEmpty()) return faces[face(now)] ?: faces["normal"] ?: awake
+        // From an older Silverfish: only awake and asleep.
         val hour = Calendar.getInstance().apply { timeInMillis = now * 1000 }.get(Calendar.HOUR_OF_DAY)
         val night = hour >= 23 || hour < 6
         return if (night && now > readingUntil) asleep ?: awake else awake ?: asleep
