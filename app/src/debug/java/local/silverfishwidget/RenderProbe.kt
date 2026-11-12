@@ -22,7 +22,7 @@ class RenderProbe : BroadcastReceiver() {
                 val pet = Pet.parse(folder?.let { Folder.readState(ctx, it) }) ?: return@Thread
                 val d = ctx.resources.displayMetrics.density
                 val now = System.currentTimeMillis() / 1000
-                for ((wDp, hDp) in listOf(473 to 101, 266 to 110, 473 to 190, 400 to 250, 330 to 200, 473 to 386, 180 to 180, 300 to 300)) {
+                for ((wDp, hDp) in listOf(145 to 380, 120 to 250, 180 to 300, 266 to 386, 300 to 300)) {
                     val w = (wDp * d).toInt(); val h = (hDp * d).toInt()
                     val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                     Canvas(out).apply { drawColor(Color.BLACK); drawBitmap(Render.pet(ctx, w, h, pet, now), 0f, 0f, null) }

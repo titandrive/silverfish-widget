@@ -89,7 +89,8 @@ object Render {
         when {
             w >= h * 2.2f -> short(ctx, c, w, h, pet, now)
             w >= h * 1.3f -> wide(ctx, c, w, h, pet, now)
-            else -> stacked(ctx, c, w, h, pet, now)
+            w >= h * 0.75f -> stacked(ctx, c, w, h, pet, now)
+            else -> tall(ctx, c, w, h, pet, now)
         }
         return bmp
     }
@@ -150,11 +151,32 @@ object Render {
         }
     }
 
+    /**
+     * Tall and narrow: one column. The pet with its name and stage on top, its thought in a bubble
+     * below (tail pointing up at it), the stats at the bottom.
+     */
+    private fun tall(ctx: Context, c: Canvas, w: Int, h: Int, pet: Pet, now: Long) {
+        val pad = w * 0.08f
+        val cw = w - 2 * pad
+        val availH = h - 2 * pad
+        val block = fitBlock(ctx, pet, now, cw, availH * 0.32f)
+        block.draw(c, pad, h - pad - block.height)
+        val thought = pet.thought
+        val restH = availH - block.height - pad
+        val petH = if (thought != null) restH * 0.5f else restH
+        petColumn(ctx, c, pet, now, pad, pad, cw, petH)
+        if (thought != null) {
+            val tail = tailRoom(cw)
+            val by = pad + petH + tail
+            bubble(c, pad, by, cw, restH - petH - tail, thought, ctx, tailUp = true)
+        }
+    }
+
     private fun tailRoom(h: Float) = max(6f, h * 0.06f)
 
     /**
      * The pet, centred in a [colW] x [colH] column at ([x], [y]), with its name centred under it, and
-     * "EGG · GEN 1" under that when there's room: readable, and leaving the pet half the column.
+     * "EGG · GEN 1" under that when there's room: readable, and leaving the pet 40% of the column.
      */
     private fun petColumn(ctx: Context, c: Canvas, pet: Pet, now: Long, x: Float, y: Float, colW: Float, colH: Float) {
         val name = (pet.name ?: pet.stageTitle).uppercase()
@@ -165,11 +187,12 @@ object Render {
         val gap = nameH * 0.25f
 
         val stage = "${pet.stageTitle.uppercase()} · GEN ${pet.generation}"
-        val sp = paint(ctx, p.textSize * 0.6f, DIM)
+        // 60% of the name, but no smaller than readable when the width allows
+        val sp = paint(ctx, max(p.textSize * 0.6f, minSize(ctx)), DIM)
         val stageW = sp.measureText(stage)
         if (stageW > colW) sp.textSize *= colW / stageW
         val stageH = lineH(sp) + gap * 0.5f
-        val withStage = sp.textSize >= minSize(ctx) && colH - nameH - gap - stageH >= colH * 0.5f
+        val withStage = sp.textSize >= minSize(ctx) && colH - nameH - gap - stageH >= colH * 0.4f
 
         val textH = nameH + gap + if (withStage) stageH else 0f
         val side = min(colW, colH - textH)
@@ -280,23 +303,36 @@ object Render {
      * on the left pointing at the pet. [text] fills it: the largest size at which it fits without
      * breaking a word.
      */
-    private fun bubble(c: Canvas, x: Float, y: Float, w: Float, h: Float, text: String, ctx: Context) {
+    private fun bubble(c: Canvas, x: Float, y: Float, w: Float, h: Float, text: String, ctx: Context, tailUp: Boolean = false) {
         if (w <= 0 || h <= 0) return
         val b = max(2f, floor(min(w, h) * 0.025f))  // the outline's "pixel"
         val white = Paint().apply { color = WHITE }
         fun r(l: Float, t: Float, rw: Float, rh: Float) = c.drawRect(l, t, l + rw, t + rh, white)
-        r(x + b, y, w - 2 * b, b)
         r(x + b, y + h - b, w - 2 * b, b)
-        val ty = y + h / 2
-        // the left side, open where the tail joins it
-        r(x, y + b, b, ty - b - (y + b))
-        r(x, ty + b, b, y + h - b - (ty + b))
         r(x + w - b, y + b, b, h - 2 * b)
-        r(x - b, ty - 2 * b, b, b)
-        r(x - 2 * b, ty - b, b, b)
-        r(x - 3 * b, ty, b, b)
-        r(x - 2 * b, ty + b, b, b)
-        r(x - b, ty + 2 * b, b, b)
+        if (tailUp) {
+            // tail on top, in the middle, pointing up at the pet; the top side open where it joins
+            val tx = x + w / 2
+            r(x, y + b, b, h - 2 * b)
+            r(x + b, y, tx - b - (x + b), b)
+            r(tx + b, y, x + w - b - (tx + b), b)
+            r(tx - 2 * b, y - b, b, b)
+            r(tx - b, y - 2 * b, b, b)
+            r(tx, y - 3 * b, b, b)
+            r(tx + b, y - 2 * b, b, b)
+            r(tx + 2 * b, y - b, b, b)
+        } else {
+            // tail on the left, halfway down, pointing at the pet; the left side open where it joins
+            val ty = y + h / 2
+            r(x + b, y, w - 2 * b, b)
+            r(x, y + b, b, ty - b - (y + b))
+            r(x, ty + b, b, y + h - b - (ty + b))
+            r(x - b, ty - 2 * b, b, b)
+            r(x - 2 * b, ty - b, b, b)
+            r(x - 3 * b, ty, b, b)
+            r(x - 2 * b, ty + b, b, b)
+            r(x - b, ty + 2 * b, b, b)
+        }
 
         val inner = max(4 * b, min(w, h) * 0.1f)
         val tw = (w - 2 * inner).toInt()
