@@ -59,8 +59,39 @@ object Render {
     fun pet(ctx: Context, w: Int, h: Int, pet: Pet, now: Long): Bitmap {
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
-        if (w >= h * 1.3f) wide(ctx, c, w, h, pet, now) else stacked(ctx, c, w, h, pet, now)
+        when {
+            w >= h * 2.2f -> short(ctx, c, w, h, pet, now)
+            w >= h * 1.3f -> wide(ctx, c, w, h, pet, now)
+            else -> stacked(ctx, c, w, h, pet, now)
+        }
         return bmp
+    }
+
+    /**
+     * Short and wide (a row or so tall): three columns. A smaller pet on the left with its thought in
+     * a speech bubble right beside it, as on Silverfish's home card, and the text block on the right.
+     */
+    private fun short(ctx: Context, c: Canvas, w: Int, h: Int, pet: Pet, now: Long) {
+        val pad = h * 0.1f
+        val availH = h - 2 * pad
+        val side = min(availH, w * 0.16f)
+        pet.sprite(now)?.let { drawSprite(c, it, pad, (h - side) / 2, side) }
+        val x = pad + side + pad
+        val rest = w - x - pad
+        val thought = pet.thought
+        val cw = if (thought != null) rest * 0.55f else rest
+        val block = fitBlock(ctx, pet, now, cw, availH, null, 0)
+        val statsX = w - pad - cw
+        block.draw(c, statsX, (h - block.height) / 2)
+        if (thought != null) {
+            val tail = block.size * 0.6f
+            val bx = x + tail
+            val bw = statsX - pad - bx
+            if (bw > block.size * 6) {
+                val bh = availH * 0.9f
+                bubble(c, bx, (h - bh) / 2, bw, bh, paint(ctx, block.size, WHITE), thought)
+            }
+        }
     }
 
     /** Smallest text size worth showing; below this a block drops its thought (or the bubble goes). */
