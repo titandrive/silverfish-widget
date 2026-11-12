@@ -42,6 +42,21 @@ class PetWidget : AppWidgetProvider() {
             Refresh.schedule(ctx)
             drawAsync(ctx, allIds(ctx))
         }
+        if (intent.action == ACTION_PET) {
+            val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+            Haptics.widgetTick(ctx)
+            val pending = goAsync()
+            val app = ctx.applicationContext
+            thread {
+                try {
+                    // Noted for Silverfish to apply (it owns the pet's state), and shown straight away.
+                    Folder.forWidget(app, id)?.let { Folder.addPet(app, it, System.currentTimeMillis() / 1000) }
+                    updateAll(app)
+                } finally {
+                    pending.finish()
+                }
+            }
+        }
     }
 
     /** Reading through the storage framework can take a moment; never on the broadcast's thread. */
@@ -76,7 +91,7 @@ class PetWidget : AppWidgetProvider() {
             if (onlyIfChanged && text != null && !Seen.changed(ctx, id, text)) return
             val (w, h) = sizePx(ctx, mgr, id)
             val now = System.currentTimeMillis() / 1000
-            val pet = Pet.parse(text)
+            val pet = Pet.parse(text, folder?.let { Folder.pets(ctx, it) }.orEmpty())
             val style = Style.load(ctx, id)
             val bitmap = when {
                 folder == null -> Render.message(ctx, w, h, "Tap to choose the Silverfish folder", style)
@@ -89,7 +104,33 @@ class PetWidget : AppWidgetProvider() {
             val views = RemoteViews(ctx.packageName, R.layout.widget)
             views.setImageViewBitmap(R.id.pet, bitmap)
             views.setOnClickPendingIntent(R.id.root, tapIntent(ctx, id, ready = pet != null))
+            petArea(ctx, views, id, if (pet != null) Render.petBounds else null)
             mgr.updateAppWidget(id, views)
+        }
+
+        private const val ACTION_PET = "local.silverfishwidget.PET"
+
+        /**
+         * The tap that gives affection, over where the creature was drawn (a bit larger, for a finger).
+         * Placing it takes Android 12; before that the whole widget opens KOReader.
+         */
+        private fun petArea(ctx: Context, views: RemoteViews, id: Int, bounds: android.graphics.RectF?) {
+            if (bounds == null || android.os.Build.VERSION.SDK_INT < 31) {
+                views.setViewVisibility(R.id.pet_area, android.view.View.GONE)
+                return
+            }
+            val grow = maxOf(bounds.width(), bounds.height()) * 0.15f
+            val px = android.util.TypedValue.COMPLEX_UNIT_PX
+            views.setViewLayoutMargin(R.id.pet_area, RemoteViews.MARGIN_LEFT, maxOf(0f, bounds.left - grow), px)
+            views.setViewLayoutMargin(R.id.pet_area, RemoteViews.MARGIN_TOP, maxOf(0f, bounds.top - grow), px)
+            views.setViewLayoutWidth(R.id.pet_area, bounds.width() + 2 * grow, px)
+            views.setViewLayoutHeight(R.id.pet_area, bounds.height() + 2 * grow, px)
+            views.setViewVisibility(R.id.pet_area, android.view.View.VISIBLE)
+            val intent = Intent(ctx, PetWidget::class.java).setAction(ACTION_PET).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+            views.setOnClickPendingIntent(
+                R.id.pet_area,
+                PendingIntent.getBroadcast(ctx, id, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE),
+            )
         }
 
         /** Opens KOReader (via [TapActivity], which tells Silverfish what to show) once the widget works; until then, its setup. */

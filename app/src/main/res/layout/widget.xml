@@ -10,4 +10,13 @@
         android:layout_height="match_parent"
         android:contentDescription="@string/app_name"
         android:scaleType="fitCenter" />
+
+    <!-- Over the creature: tapping it gives it affection (placed and sized when drawn; Android 12+). -->
+    <FrameLayout
+        android:id="@+id/pet_area"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_gravity="top|start"
+        android:contentDescription="Pet"
+        android:visibility="gone" />
 </FrameLayout>

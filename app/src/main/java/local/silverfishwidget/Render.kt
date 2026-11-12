@@ -80,9 +80,14 @@ object Render {
         return bmp
     }
 
+    /** Where the last [pet] drew the creature, in its pixels: the widget puts the "pet it" tap there. */
+    var petBounds: android.graphics.RectF? = null
+        private set
+
     @Synchronized
     fun pet(ctx: Context, w: Int, h: Int, pet: Pet, now: Long, style: Style = Style()): Bitmap {
         use(style.isDark(ctx))
+        petBounds = null
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         background(ctx, c, w, h, style.opacity)
@@ -103,7 +108,7 @@ object Render {
         petColumn(ctx, c, pet, now, pad, pad, colW, availH)
         val x = pad + colW + pad
         val rest = w - x - pad
-        val thought = pet.thought
+        val thought = pet.thoughtAt(now)
         val cw = if (thought != null) rest * 0.5f else rest
         val block = fitBlock(ctx, pet, now, cw, availH)
         val statsX = w - pad - cw
@@ -122,7 +127,7 @@ object Render {
         petColumn(ctx, c, pet, now, pad, pad, colW, availH)
         val x = pad + colW + pad
         val cw = w - x - pad
-        val thought = pet.thought
+        val thought = pet.thoughtAt(now)
         val bubbleH = if (thought != null) availH * 0.4f else 0f
         val statsH = availH - bubbleH - (if (thought != null) pad else 0f)
         val block = fitBlock(ctx, pet, now, cw, statsH)
@@ -140,7 +145,7 @@ object Render {
         val block = fitBlock(ctx, pet, now, cw, (h - 2 * pad) * 0.5f)
         val topH = h - 2 * pad - block.height - pad
         block.draw(c, pad, h - pad - block.height)
-        val thought = pet.thought
+        val thought = pet.thoughtAt(now)
         if (thought != null) {
             val colW = min(topH, cw * 0.4f)
             petColumn(ctx, c, pet, now, pad, pad, colW, topH)
@@ -161,7 +166,7 @@ object Render {
         val availH = h - 2 * pad
         val block = fitBlock(ctx, pet, now, cw, availH * 0.32f)
         block.draw(c, pad, h - pad - block.height)
-        val thought = pet.thought
+        val thought = pet.thoughtAt(now)
         val restH = availH - block.height - pad
         val petH = if (thought != null) restH * 0.5f else restH
         petColumn(ctx, c, pet, now, pad, pad, cw, petH)
@@ -384,6 +389,7 @@ object Render {
         val scale = if (exact >= 1) floor(exact) else exact
         val ox = floor(x + (side - bw * scale) / 2)
         val oy = floor(y + (side - bh * scale) / 2)
+        petBounds = android.graphics.RectF(ox, oy, ox + bw * scale, oy + bh * scale)
         val p = Paint().apply { isAntiAlias = false }
         for (j in top..bottom) {
             val row = s.rows[j]

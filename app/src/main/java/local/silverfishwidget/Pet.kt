@@ -18,7 +18,7 @@ class Band(val min: Double, val label: String)
  * Belly and mood keep falling after that save, as they do in Silverfish; [bellyAt] and [moodAt]
  * work out where they are now.
  */
-class Pet private constructor(j: JSONObject) {
+class Pet private constructor(j: JSONObject, private val pets: List<Long>) {
     val name: String? = j.optString("nome").takeIf { it.isNotBlank() }
     val generation = j.optInt("geracao", 1)
     val stageTitle: String = j.optString("fase_titulo", "")
@@ -47,13 +47,54 @@ class Pet private constructor(j: JSONObject) {
     private val mealGlow = j.optLong("refeicao_recente", 120)
     private val emptySince: Long? = if (j.isNull("vazio_desde") || !j.has("vazio_desde")) null else j.optLong("vazio_desde")
     private val hibernateAfter = j.optLong("hiberna_apos", 3 * 24 * 3600)
+    private val pettedAt = j.optLong("carinho_em", 0)
+    private val petInterval = j.optLong("carinho_intervalo", 3600)
+    private val petLines = j.optJSONObject("falas_carinho")
+    // Silverfish's own reactions; its English ones when the data is from before they were exported, so a
+    // pet always gets an answer.
+    private val acceptedLines: List<String> = petLines?.optJSONArray("aceito")?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { it.isNotBlank() } }
+        ?.ifEmpty { null } ?: listOf("Hm. Fine. You may continue.")
+    private val tooSoonLine = petLines?.optString("chega")?.takeIf { it.isNotBlank() } ?: "That's enough affection for now."
+    private val cocoonLine = petLines?.optString("casulo")?.takeIf { it.isNotBlank() } ?: "(hiding in the spine; read a page to coax her out)"
+
+    /**
+     * The widget's pets not yet applied by Silverfish ([pets], from widget/carinhos), each judged by
+     * Silverfish's rule (Estado.carinho): counts if not hibernating and an hour since the last one that
+     * counted. Each that counts adds 15 to the mood. Pairs of (time, counted).
+     */
+    private val judged: List<Pair<Long, Boolean>> by lazy {
+        var last = pettedAt
+        pets.sorted().map { t ->
+            val ok = !hibernatingAt(t) && t - last >= petInterval
+            if (ok) last = t
+            t to ok
+        }
+    }
+
+    /** How long the reaction to a pet shows in the bubble. */
+    private val reactionSeconds = 5 * 60L
 
     private fun hoursSince(now: Long) = max(0.0, (now - savedAt) / 3600.0)
 
     fun bellyAt(now: Long): Double = (belly - hoursSince(now) * hungerPerHour).coerceIn(0.0, 100.0)
 
+    /** The mood now: as saved and fallen since, plus 15 for each pet the widget gave that counted. */
+    fun moodAt(now: Long): Double =
+        (baseMood(now) + 15.0 * judged.count { it.second && it.first <= now }).coerceIn(0.0, 100.0)
+
+    /** What it says now: its reaction to a pet in the last few minutes, else its thought. */
+    fun thoughtAt(now: Long): String? {
+        val (t, ok) = judged.lastOrNull { it.first <= now } ?: return thought
+        if (now - t > reactionSeconds) return thought
+        return when {
+            hibernatingAt(t) -> cocoonLine
+            ok -> acceptedLines[(t % acceptedLines.size).toInt()]
+            else -> tooSoonLine
+        }
+    }
+
     /** Mood falls twice as fast once the belly is under 20, as in Silverfish. */
-    fun moodAt(now: Long): Double {
+    private fun baseMood(now: Long): Double {
         val h = hoursSince(now)
         val untilHungry = if (belly <= 20) 0.0 else (belly - 20) / hungerPerHour
         val normal = min(h, untilHungry)
@@ -96,8 +137,8 @@ class Pet private constructor(j: JSONObject) {
     }
 
     companion object {
-        fun parse(text: String?): Pet? = text?.let {
-            runCatching { Pet(JSONObject(it)) }
+        fun parse(text: String?, pets: List<Long> = emptyList()): Pet? = text?.let {
+            runCatching { Pet(JSONObject(it), pets) }
                 .onFailure { e -> android.util.Log.w("SilverfishWidget", "Can't read the pet's data", e) }
                 .getOrNull()
         }

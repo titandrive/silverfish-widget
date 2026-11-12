@@ -152,4 +152,54 @@ object Folder {
             }
         }.getOrNull()
     }
+
+    // ── Pets given on the widget (widget/carinhos) ──────────────────────
+
+    private const val PETS = "carinhos"
+
+    /** Silverfish's widget folder as a plain file, with All files access; null without it. */
+    private fun directWidgetDir(tree: Uri): java.io.File? = runCatching {
+        if (android.os.Build.VERSION.SDK_INT < 30 || !android.os.Environment.isExternalStorageManager()) return null
+        val id = DocumentsContract.getTreeDocumentId(tree)
+        val volume = id.substringBefore(':')
+        val path = id.substringAfter(':', "")
+        val root = if (volume == "primary") android.os.Environment.getExternalStorageDirectory() else java.io.File("/storage/$volume")
+        val picked = java.io.File(root, path)
+        listOf(java.io.File(picked, "widget"), java.io.File(picked, "plugins/$PLUGIN_DIR/widget")).firstOrNull { it.isDirectory }
+    }.getOrNull()
+
+    /** Silverfish's widget folder in the storage framework, as a document id. */
+    private fun safWidgetDir(ctx: Context, tree: Uri): String? {
+        val root = rootId(tree) ?: return null
+        return child(ctx, tree, root, "widget")
+            ?: child(ctx, tree, root, "plugins")?.let { child(ctx, tree, it, PLUGIN_DIR) }?.let { child(ctx, tree, it, "widget") }
+    }
+
+    /** The pets given on the widget that Silverfish hasn't applied yet (it deletes the file when it does). */
+    fun pets(ctx: Context, tree: Uri): List<Long> {
+        val text = directWidgetDir(tree)?.let { java.io.File(it, PETS) }?.takeIf { it.isFile }?.let { runCatching { it.readText() }.getOrNull() }
+            ?: runCatching {
+                val dir = safWidgetDir(ctx, tree) ?: return emptyList()
+                val doc = child(ctx, tree, dir, PETS) ?: return emptyList()
+                ctx.contentResolver.openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, doc))?.use { it.readBytes().toString(Charsets.UTF_8) }
+            }.getOrNull()
+            ?: return emptyList()
+        return text.split(Regex("\\s+")).mapNotNull { it.toLongOrNull() }
+    }
+
+    /** Adds a pet at [time] for Silverfish to apply when KOReader next comes up. */
+    fun addPet(ctx: Context, tree: Uri, time: Long): Boolean {
+        directWidgetDir(tree)?.let { dir ->
+            if (runCatching { java.io.File(dir, PETS).appendText("$time\n") }.isSuccess) return true
+        }
+        return runCatching {
+            if (!canWrite(ctx, tree)) return false
+            val dir = safWidgetDir(ctx, tree) ?: return false
+            val doc = child(ctx, tree, dir, PETS)?.let { DocumentsContract.buildDocumentUriUsingTree(tree, it) }
+                ?: DocumentsContract.createDocument(
+                    ctx.contentResolver, DocumentsContract.buildDocumentUriUsingTree(tree, dir), "application/octet-stream", PETS,
+                ) ?: return false
+            ctx.contentResolver.openOutputStream(doc, "wa")?.use { it.write("$time\n".toByteArray()) } != null
+        }.getOrDefault(false)
+    }
 }
