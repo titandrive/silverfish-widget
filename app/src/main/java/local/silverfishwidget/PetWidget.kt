@@ -27,6 +27,7 @@ class PetWidget : AppWidgetProvider() {
     override fun onDeleted(ctx: Context, ids: IntArray) {
         for (id in ids) {
             Folder.removeWidget(ctx, id)
+            Style.remove(ctx, id)
             Seen.forget(ctx, id)
         }
     }
@@ -76,12 +77,13 @@ class PetWidget : AppWidgetProvider() {
             val (w, h) = sizePx(ctx, mgr, id)
             val now = System.currentTimeMillis() / 1000
             val pet = Pet.parse(text)
+            val style = Style.load(ctx, id)
             val bitmap = when {
-                folder == null -> Render.message(ctx, w, h, "Tap to choose the Silverfish folder")
-                pet != null -> Render.pet(ctx, w, h, pet, now)
+                folder == null -> Render.message(ctx, w, h, "Tap to choose the Silverfish folder", style)
+                pet != null -> Render.pet(ctx, w, h, pet, now, style)
                 Folder.check(ctx, folder) == Folder.Check.NO_DATA_YET ->
-                    Render.message(ctx, w, h, "Waiting for Silverfish: open KOReader and read a page")
-                else -> Render.message(ctx, w, h, "Can't find Silverfish here. Tap to choose its folder")
+                    Render.message(ctx, w, h, "Waiting for Silverfish: open KOReader and read a page", style)
+                else -> Render.message(ctx, w, h, "Can't find Silverfish here. Tap to choose its folder", style)
             }
             if (text != null) Seen.record(ctx, id, text)
             val views = RemoteViews(ctx.packageName, R.layout.widget)
@@ -103,7 +105,7 @@ class PetWidget : AppWidgetProvider() {
         }
 
         /** The widget's size in pixels, as the launcher reports it for the current orientation. */
-        private fun sizePx(ctx: Context, mgr: AppWidgetManager, id: Int): Pair<Int, Int> {
+        fun sizePx(ctx: Context, mgr: AppWidgetManager, id: Int): Pair<Int, Int> {
             val o = mgr.getAppWidgetOptions(id)
             val portrait = ctx.resources.configuration.orientation != Configuration.ORIENTATION_LANDSCAPE
             val wDp = if (portrait) o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH) else o.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH)

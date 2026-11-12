@@ -28,6 +28,15 @@ class RenderProbe : BroadcastReceiver() {
                     Canvas(out).apply { drawColor(Color.BLACK); drawBitmap(Render.pet(ctx, w, h, pet, now), 0f, 0f, null) }
                     File(dir, "${wDp}x$hDp.png").outputStream().use { out.compress(Bitmap.CompressFormat.PNG, 100, it) }
                 }
+                // Light, and dark at 60% over a stand-in wallpaper colour, to check the theme and opacity.
+                for ((name, style) in listOf("light" to Style("light", 100), "dark60" to Style("dark", 60))) {
+                    for ((wDp, hDp) in listOf(473 to 190, 300 to 300)) {
+                        val w = (wDp * d).toInt(); val h = (hDp * d).toInt()
+                        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                        Canvas(out).apply { drawColor(0xFF5A2A6E.toInt()); drawBitmap(Render.pet(ctx, w, h, pet, now, style), 0f, 0f, null) }
+                        File(dir, "${wDp}x$hDp-$name.png").outputStream().use { out.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    }
+                }
             } finally {
                 pending.finish()
             }

@@ -20,22 +20,36 @@ import java.util.concurrent.TimeUnit
  *  - Instantly when Silverfish saves, if All files access is granted: Android wakes the app a
  *    moment after a file changes on shared storage (from its file index); it only tells apps that
  *    can see the file. Redraws only if widget/estado.json actually changed.
- *  - Every 15 minutes regardless (the shortest Android allows): belly and mood keep falling and the
- *    pet falls asleep at night between saves, as Silverfish works them out whenever it's looked at.
- *    This also picks up saves when instant updates are off.
+ *  - On a clock, every [minutes] (15 minutes at the shortest, as Android allows) whether or not
+ *    anything was saved: belly and mood keep falling and the pet falls asleep at night between
+ *    saves, as Silverfish works them out whenever it's looked at. This also picks up saves when
+ *    instant updates are off.
  */
 object Refresh {
     private const val CLOCK = "clock"
     private const val INSTANT = "instant"
 
+    /** Choices for the clock, in minutes. */
+    val CHOICES = listOf(15, 30, 60, 180)
+
     fun canInstant() = Build.VERSION.SDK_INT >= 30 && Environment.isExternalStorageManager()
+
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences("refresh", Context.MODE_PRIVATE)
+
+    /** How often the clock redraws the widgets; one setting for all of them. */
+    fun minutes(ctx: Context): Int = prefs(ctx).getInt("minutes", 15).takeIf { it in CHOICES } ?: 15
+
+    fun setMinutes(ctx: Context, minutes: Int) {
+        prefs(ctx).edit().putInt("minutes", minutes).apply()
+    }
 
     /** Starts (or keeps) both kinds of refresh; safe to call any time. */
     fun schedule(ctx: Context) {
         val wm = WorkManager.getInstance(ctx)
         wm.enqueueUniquePeriodicWork(
-            CLOCK, ExistingPeriodicWorkPolicy.KEEP,
-            PeriodicWorkRequestBuilder<Run>(15, TimeUnit.MINUTES).setInputData(workDataOf("all" to true)).build(),
+            // UPDATE: a changed interval takes effect without restarting the clock otherwise.
+            CLOCK, ExistingPeriodicWorkPolicy.UPDATE,
+            PeriodicWorkRequestBuilder<Run>(minutes(ctx).toLong(), TimeUnit.MINUTES).setInputData(workDataOf("all" to true)).build(),
         )
         armInstant(ctx, rearm = false)
     }

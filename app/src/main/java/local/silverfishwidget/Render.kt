@@ -23,9 +23,30 @@ import kotlin.math.min
  * width and height, so nothing is cut short or falls off the edge.
  */
 object Render {
-    private const val WHITE = Color.WHITE
-    private const val DIM = 0xFF9A9A9A.toInt()
-    private const val EMPTY = 0xFF3A3A3A.toInt()
+    /** Colours for a light or dark widget: page, text, softer text, empty dots and bar. */
+    private class Colors(val page: Int, val text: Int, val dim: Int, val empty: Int)
+
+    private val DARK = Colors(0xFF000000.toInt(), Color.WHITE, 0xFF9A9A9A.toInt(), 0xFF3A3A3A.toInt())
+    private val LIGHT = Colors(0xFFFFFFFF.toInt(), 0xFF111111.toInt(), 0xFF6B6B6B.toInt(), 0xFFD8D8D8.toInt())
+
+    // The drawing in progress uses these; [pet] and [message] set them and draw one widget at a time.
+    private var WHITE = DARK.text
+    private var DIM = DARK.dim
+    private var EMPTY = DARK.empty
+    private var PAGE = DARK.page
+
+    private fun use(dark: Boolean) {
+        val c = if (dark) DARK else LIGHT
+        WHITE = c.text; DIM = c.dim; EMPTY = c.empty; PAGE = c.page
+    }
+
+    /** The widget's background: rounded, in the page colour at [opacity] percent. */
+    private fun background(ctx: Context, c: Canvas, w: Int, h: Int, opacity: Int) {
+        if (opacity <= 0) return
+        val r = 16 * ctx.resources.displayMetrics.density
+        val p = Paint().apply { isAntiAlias = true; color = PAGE; alpha = (opacity.coerceIn(0, 100) * 255 / 100) }
+        c.drawRoundRect(0f, 0f, w.toFloat(), h.toFloat(), r, r, p)
+    }
 
     private var regular: Typeface? = null
     private var bold: Typeface? = null
@@ -44,9 +65,12 @@ object Render {
     private fun lineH(p: TextPaint) = p.fontMetrics.let { it.descent - it.ascent }
 
     /** A message instead of the pet (not set up, no data yet). */
-    fun message(ctx: Context, w: Int, h: Int, text: String): Bitmap {
+    @Synchronized
+    fun message(ctx: Context, w: Int, h: Int, text: String, style: Style = Style()): Bitmap {
+        use(style.isDark(ctx))
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
+        background(ctx, c, w, h, style.opacity)
         val p = paint(ctx, min(h * 0.12f, w * 0.05f), DIM)
         val pad = (h * 0.1f).toInt()
         val layout = StaticLayout.Builder.obtain(text, 0, text.length, p, max(1, w - 2 * pad))
@@ -56,9 +80,12 @@ object Render {
         return bmp
     }
 
-    fun pet(ctx: Context, w: Int, h: Int, pet: Pet, now: Long): Bitmap {
+    @Synchronized
+    fun pet(ctx: Context, w: Int, h: Int, pet: Pet, now: Long, style: Style = Style()): Bitmap {
+        use(style.isDark(ctx))
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
+        background(ctx, c, w, h, style.opacity)
         when {
             w >= h * 2.2f -> short(ctx, c, w, h, pet, now)
             w >= h * 1.3f -> wide(ctx, c, w, h, pet, now)
@@ -260,10 +287,11 @@ object Render {
         fun r(l: Float, t: Float, rw: Float, rh: Float) = c.drawRect(l, t, l + rw, t + rh, white)
         r(x + b, y, w - 2 * b, b)
         r(x + b, y + h - b, w - 2 * b, b)
-        r(x, y + b, b, h - 2 * b)
-        r(x + w - b, y + b, b, h - 2 * b)
         val ty = y + h / 2
-        c.drawRect(x, ty - b, x + b, ty + b, Paint().apply { color = Color.BLACK })
+        // the left side, open where the tail joins it
+        r(x, y + b, b, ty - b - (y + b))
+        r(x, ty + b, b, y + h - b - (ty + b))
+        r(x + w - b, y + b, b, h - 2 * b)
         r(x - b, ty - 2 * b, b, b)
         r(x - 2 * b, ty - b, b, b)
         r(x - 3 * b, ty, b, b)

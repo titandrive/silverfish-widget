@@ -10,6 +10,9 @@
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
+    <!-- The light tick on taps in settings. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <!-- Lets a tap on the widget open KOReader on Android 11+. -->
     <queries>
         <package android:name="org.koreader.launcher" />
@@ -26,7 +29,9 @@
         <!-- Setup: from the launcher (default folder) and when a widget is added (its folder). -->
         <activity
             android:name=".SetupActivity"
-            android:exported="true">
+            android:exported="true"
+            android:taskAffinity=""
+            android:excludeFromRecents="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

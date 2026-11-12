@@ -3,170 +3,248 @@ package local.silverfishwidget
 import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
-import android.provider.DocumentsContract
 import android.provider.Settings
-import android.text.format.DateUtils
-import android.util.TypedValue
-import android.view.ViewGroup.LayoutParams.MATCH_PARENT
-import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
-import kotlin.concurrent.thread
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
- * Setup, for a widget being added (pick its folder, then Add) or from the launcher (the folder new
- * widgets start with, and instant updates).
+ * Settings, in Obsidian Widget's style: for a widget being added or changed (its folder, light or
+ * dark, background opacity), with a live preview on the wallpaper; and from the launcher (the folder
+ * new widgets start with, and instant updates).
  */
-class SetupActivity : Activity() {
+class SetupActivity : ComponentActivity() {
     private var widgetId = AppWidgetManager.INVALID_APPWIDGET_ID
-    private var folder: Uri? = null
-    private var check: Folder.Check? = null
 
-    private lateinit var pathView: TextView
-    private lateinit var statusView: TextView
-    private lateinit var instantView: TextView
-    private lateinit var instantButton: Button
-    private lateinit var doneButton: Button
-
-    override fun onCreate(state: Bundle?) {
-        super.onCreate(state)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
         widgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
         val forWidget = widgetId != AppWidgetManager.INVALID_APPWIDGET_ID
+        // Backing out of the first setup doesn't add the widget.
+        if (forWidget) setResult(Activity.RESULT_CANCELED, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId))
+        // Already on the home screen: it has a folder or a style of its own (widgets from before styles have only a folder).
+        val existing = forWidget && (getSharedPreferences("style", MODE_PRIVATE).contains("w$widgetId.mode") ||
+            getSharedPreferences("folders", MODE_PRIVATE).contains("w$widgetId"))
+        enableEdgeToEdge()
+        setContent { AppTheme { Screen(forWidget, existing) } }
+    }
+
+    private suspend fun save(folder: Uri, style: Style, minutes: Int) {
+        Refresh.setMinutes(this, minutes)
+        val forWidget = widgetId != AppWidgetManager.INVALID_APPWIDGET_ID
         if (forWidget) {
-            // Backing out without finishing setup doesn't add the widget.
-            setResult(RESULT_CANCELED, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId))
+            Folder.setForWidget(this, widgetId, folder)
+            Style.save(this, widgetId, style)
+        } else {
+            Folder.setDefault(this, folder)
         }
-        folder = if (forWidget) Folder.forWidget(this, widgetId) else Folder.default(this)
-        buildUi(forWidget)
-        refreshFolder()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        refreshInstant()  // back from the All files access screen
-    }
-
-    private fun dp(v: Int) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
-
-    private fun text(size: Float, top: Int = 0) = TextView(this).apply {
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
-        layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(top) }
-    }
-
-    private fun button(label: String, top: Int = 8, onClick: () -> Unit) = Button(this).apply {
-        text = label
-        isAllCaps = false
-        layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(top) }
-        setOnClickListener { onClick() }
-    }
-
-    private fun buildUi(forWidget: Boolean) {
-        val col = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(32), dp(24), dp(24))
+        Refresh.schedule(this)
+        withContext(Dispatchers.IO) {
+            val mgr = AppWidgetManager.getInstance(this@SetupActivity)
+            if (forWidget) PetWidget.update(this@SetupActivity, mgr, widgetId) else PetWidget.updateAll(this@SetupActivity)
         }
-        col.addView(text(24f).apply { text = getString(R.string.app_name) })
-        col.addView(text(15f, 12).apply {
-            text = "Choose your KOReader folder, or the silverfish.koplugin folder inside it. " +
-                "Silverfish writes the pet's data there every time it saves."
-        })
-
-        col.addView(text(13f, 24).apply { text = "FOLDER"; alpha = 0.6f })
-        pathView = text(16f, 4).also(col::addView)
-        statusView = text(14f, 8).also(col::addView)
-        col.addView(button("Choose folder") { pick() })
-
-        col.addView(text(13f, 24).apply { text = "INSTANT UPDATES"; alpha = 0.6f })
-        instantView = text(14f, 4).also(col::addView)
-        instantButton = button("Allow All files access") {
-            startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
-        }.also(col::addView)
-
-        doneButton = button(if (forWidget) "Add widget" else "Done", 32) { finishSetup() }.also(col::addView)
-        setContentView(ScrollView(this).apply { addView(col) })
+        if (forWidget) setResult(Activity.RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId))
+        finish()
     }
 
-    private fun pick() {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
-            .putExtra(DocumentsContract.EXTRA_INITIAL_URI, folder ?: Folder.pickerStart())
-        @Suppress("DEPRECATION")
-        startActivityForResult(intent, PICK)
-    }
+    @Composable
+    private fun Screen(forWidget: Boolean, existing: Boolean) {
+        val scope = rememberCoroutineScope()
+        var folder by remember { mutableStateOf(if (forWidget) Folder.forWidget(this, widgetId) else Folder.default(this)) }
+        var check by remember { mutableStateOf<Folder.Check?>(null) }
+        var pet by remember { mutableStateOf<Pet?>(null) }
+        val start = remember { if (forWidget) Style.load(this, widgetId) else Style() }
+        var mode by remember { mutableStateOf(start.mode) }
+        var opacity by remember { mutableIntStateOf(start.opacity) }
+        var instant by remember { mutableStateOf(Refresh.canInstant()) }
+        var every by remember { mutableIntStateOf(Refresh.minutes(this)) }
 
-    @Deprecated("Plain Activity result")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        @Suppress("DEPRECATION")
-        super.onActivityResult(requestCode, resultCode, data)
-        val tree = data?.data
-        if (requestCode != PICK || resultCode != RESULT_OK || tree == null) return
-        runCatching { Folder.take(this, tree) }
-        folder = tree
-        refreshFolder()
-    }
+        // Back from the All files access screen: show whether it was turned on.
+        val lifecycle = LocalLifecycleOwner.current.lifecycle
+        DisposableEffect(lifecycle) {
+            val obs = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_RESUME) instant = Refresh.canInstant() }
+            lifecycle.addObserver(obs)
+            onDispose { lifecycle.removeObserver(obs) }
+        }
 
-    /** Shows the folder and what was found in it (read off the main thread). */
-    private fun refreshFolder() {
-        val tree = folder
-        pathView.text = tree?.let(Folder::displayPath) ?: "None chosen"
-        if (tree == null) {
-            statusView.text = ""
+        val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri != null) {
+                runCatching { Folder.take(this, uri) }
+                folder = uri
+            }
+        }
+        LaunchedEffect(folder) {
+            val tree = folder ?: return@LaunchedEffect
             check = null
-            doneButton.isEnabled = false
-            return
+            pet = null
+            withContext(Dispatchers.IO) {
+                val c = Folder.check(this@SetupActivity, tree)
+                val p = if (c == Folder.Check.OK) Pet.parse(Folder.readState(this@SetupActivity, tree)) else null
+                check = c
+                pet = p
+            }
         }
-        statusView.text = "Looking…"
-        doneButton.isEnabled = false
-        thread {
-            val result = Folder.check(this, tree)
-            val pet = if (result == Folder.Check.OK) Pet.parse(Folder.readState(this, tree)) else null
-            runOnUiThread {
-                if (tree != folder) return@runOnUiThread
-                check = result
-                statusView.text = when (result) {
-                    Folder.Check.OK -> pet?.let {
-                        val name = it.name ?: "Your Silverfish"
-                        val ago = DateUtils.getRelativeTimeSpanString(it.savedAt * 1000)
-                        "Found $name (${it.stageTitle}), saved $ago."
-                    } ?: "Found Silverfish's data, but couldn't read it."
-                    Folder.Check.NO_DATA_YET ->
-                        "Found Silverfish, but it hasn't saved widget data yet. Open KOReader and read a page; " +
-                            "the widget shows the pet as soon as it saves."
-                    Folder.Check.NOT_SILVERFISH ->
-                        "This isn't the KOReader folder or the Silverfish plugin folder."
+
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            Scaffold(
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onBackground,
+                topBar = {
+                    PageHeader(
+                        when {
+                            !forWidget -> getString(R.string.app_name)
+                            existing -> "Widget settings"
+                            else -> "New widget"
+                        },
+                        onBack = { finish() },
+                    )
+                },
+                bottomBar = {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.background)
+                            .navigationBarsPadding()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                    ) {
+                        val tick = rememberHaptic()
+                        Button(
+                            onClick = { tick(); folder?.let { f -> scope.launch { save(f, Style(mode, opacity), every) } } },
+                            enabled = folder != null && check != null && check != Folder.Check.NOT_SILVERFISH,
+                            shape = CircleShape,
+                            colors = ButtonDefaults.buttonColors(
+                                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                disabledContentColor = noteColor(),
+                            ),
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                        ) {
+                            Text(
+                                when {
+                                    !forWidget -> "Done"
+                                    existing -> "Done"
+                                    else -> "Add widget"
+                                },
+                                style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
+                },
+            ) { pad ->
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(pad)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    if (forWidget) Preview(pet, Style(mode, opacity))
+
+                    SectionCard("KOReader location", R.drawable.ic_folder) {
+                        val found = check == Folder.Check.OK && pet != null
+                        NavRow(
+                            folder?.let(Folder::displayPath) ?: "Choose folder",
+                            status(folder, check, pet) ?: "KOReader folder",
+                            R.drawable.ic_folder,
+                            onClick = { pickFolder.launch(folder ?: Folder.pickerStart()) },
+                            subtitleIcon = if (found) R.drawable.ic_check else null,
+                        )
+                    }
+
+                    if (forWidget) SectionCard("Appearance", R.drawable.ic_palette) {
+                        SettingLabel("Light or dark")
+                        PillSegmented(Style.MODES, mode, { it.replaceFirstChar(Char::uppercase) }) { mode = it }
+                        SettingLabel("Background opacity", value = "$opacity%")
+                        StepSlider(opacity, 0..100, step = 5) { opacity = it }
+                    }
+
+                    SectionCard("Updates", R.drawable.ic_refresh) {
+                        SettingLabel("Redraw every", "Belly, mood and sleep catch up even when you're not reading.")
+                        PillSegmented(Refresh.CHOICES, every, { if (it < 60) "${it}m" else "${it / 60}h" }) { every = it }
+                        // Android's own switch for All files access: on lets the widget hear Silverfish save.
+                        SwitchRow("Instant updates", "Redraw as soon as Silverfish saves. Needs All files access.", instant) {
+                            startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
+                        }
+                    }
                 }
-                doneButton.isEnabled = result != Folder.Check.NOT_SILVERFISH
             }
         }
     }
 
-    private fun refreshInstant() {
-        val on = Refresh.canInstant()
-        instantView.text = if (on) "On: the widget redraws a moment after Silverfish saves."
-        else "Off: the widget picks up Silverfish's saves within 15 minutes. With All files access " +
-            "it redraws a moment after each save."
-        instantButton.visibility = if (on) android.view.View.GONE else android.view.View.VISIBLE
-        Refresh.schedule(this)
+    private fun status(folder: Uri?, check: Folder.Check?, pet: Pet?): String? = when {
+        folder == null || check == null -> null
+        check == Folder.Check.OK && pet != null -> "${pet.name ?: "Silverfish"} found"
+        check == Folder.Check.OK -> "Can't read the pet's data"
+        check == Folder.Check.NO_DATA_YET -> "No pet yet: read a page in KOReader"
+        else -> "Silverfish not found here"
     }
 
-    private fun finishSetup() {
-        val tree = folder ?: return
-        val forWidget = widgetId != AppWidgetManager.INVALID_APPWIDGET_ID
-        if (forWidget) Folder.setForWidget(this, widgetId, tree) else Folder.setDefault(this, tree)
-        Refresh.schedule(this)
-        val app = applicationContext
-        val id = widgetId
-        thread {
-            if (forWidget) PetWidget.update(app, AppWidgetManager.getInstance(app), id) else PetWidget.updateAll(app)
+    /** The widget as it will look, at its own size and shape, on the wallpaper. */
+    @Composable
+    private fun Preview(pet: Pet?, style: Style) {
+        // A standard 4x2 widget, not the one on the home screen: just how it looks.
+        val d = resources.displayMetrics.density
+        val w = (340 * d).toInt()
+        val h = (170 * d).toInt()
+        val bitmap: Bitmap = remember(pet, style.mode, style.opacity) {
+            val now = System.currentTimeMillis() / 1000
+            if (pet != null) Render.pet(this, w, h, pet, now, style)
+            else Render.message(this, w, h, "Choose your KOReader folder", style)
         }
-        if (forWidget) setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId))
-        finish()
-    }
-
-    private companion object {
-        const val PICK = 1
+        Image(
+            bitmap.asImageBitmap(), contentDescription = "Widget preview",
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).aspectRatio(w.toFloat() / h),
+        )
     }
 }
