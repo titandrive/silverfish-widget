@@ -23,21 +23,20 @@ import kotlin.math.min
  * width and height, so nothing is cut short or falls off the edge.
  */
 object Render {
-    /** Colours for a light or dark widget: page, text, softer text, empty dots and bar. */
-    private class Colors(val page: Int, val text: Int, val dim: Int, val empty: Int)
+    /** Colours for a light or dark widget: page, text, empty dots and bar. All text is one colour: grey was hard to read. */
+    private class Colors(val page: Int, val text: Int, val empty: Int)
 
-    private val DARK = Colors(0xFF000000.toInt(), Color.WHITE, 0xFF9A9A9A.toInt(), 0xFF3A3A3A.toInt())
-    private val LIGHT = Colors(0xFFFFFFFF.toInt(), 0xFF111111.toInt(), 0xFF6B6B6B.toInt(), 0xFFD8D8D8.toInt())
+    private val DARK = Colors(0xFF000000.toInt(), Color.WHITE, 0xFF3A3A3A.toInt())
+    private val LIGHT = Colors(0xFFFFFFFF.toInt(), 0xFF111111.toInt(), 0xFFD8D8D8.toInt())
 
     // The drawing in progress uses these; [pet] and [message] set them and draw one widget at a time.
     private var WHITE = DARK.text
-    private var DIM = DARK.dim
     private var EMPTY = DARK.empty
     private var PAGE = DARK.page
 
     private fun use(dark: Boolean) {
         val c = if (dark) DARK else LIGHT
-        WHITE = c.text; DIM = c.dim; EMPTY = c.empty; PAGE = c.page
+        WHITE = c.text; EMPTY = c.empty; PAGE = c.page
     }
 
     /** The widget's background: rounded, in the page colour at [opacity] percent. */
@@ -71,7 +70,7 @@ object Render {
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         background(ctx, c, w, h, style.opacity)
-        val p = paint(ctx, min(h * 0.12f, w * 0.05f), DIM)
+        val p = paint(ctx, min(h * 0.12f, w * 0.05f), WHITE)
         val pad = (h * 0.1f).toInt()
         val layout = StaticLayout.Builder.obtain(text, 0, text.length, p, max(1, w - 2 * pad))
             .setAlignment(Layout.Alignment.ALIGN_CENTER).build()
@@ -193,7 +192,7 @@ object Render {
 
         val stage = "${pet.stageTitle.uppercase()} · GEN ${pet.generation}"
         // 60% of the name, but no smaller than readable when the width allows
-        val sp = paint(ctx, max(p.textSize * 0.6f, minSize(ctx)), DIM)
+        val sp = paint(ctx, max(p.textSize * 0.6f, minSize(ctx)), WHITE)
         val stageW = sp.measureText(stage)
         if (stageW > colW) sp.textSize *= colW / stageW
         val stageH = lineH(sp) + gap * 0.5f
@@ -235,7 +234,7 @@ object Render {
      * with dots, PAGES EATEN with today's count. Its height, the width its widest line needs, how to draw it.
      */
     private fun block(ctx: Context, pet: Pet, now: Long, s: Float, cw: Float): Block {
-        val dim = paint(ctx, s, DIM)
+        val dim = paint(ctx, s, WHITE)
         val row = paint(ctx, s, WHITE)
         val gap = s * 0.5f
         val barH = max(3f, s * 0.55f)
